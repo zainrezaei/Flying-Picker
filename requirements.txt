@@ -1,4 +1,5 @@
-numpy==1.26.0
-opencv-python==4.8.0
-pypylon==3.0.0
-pyserial  # If communicating via Serial
+numpy
+opencv-python
+pyyaml>=6.0
+# picamera2              # Raspberry Pi camera library — enable when running on Pi 5
+# pyserial               # Serial comms with robot — enable when hardware is available

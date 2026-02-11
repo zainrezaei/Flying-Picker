@@ -1,0 +1,36 @@
+# ============================================================
+# Flying Picker — Vision System Configuration
+# ============================================================
+
+# --- Input source ---
+input:
+  video_path: "puplic/IMG_6256.MOV"   # path relative to project root
+
+# --- Preprocessing ---
+preprocess:
+  blur_kernel_size: 5        # Gaussian blur kernel (must be odd)
+  threshold_value: 150       # Binary threshold (0-255); light object on dark bg
+  threshold_max: 255         # Max value for binary threshold
+
+# --- Detection ---
+detection:
+  min_contour_area: 5000     # Ignore contours smaller than this (pixels²)
+
+# --- Region of Interest (crop frame edges to remove noise) ---
+roi:
+  enabled: true
+  x_start: 0.05              # Left edge crop (0.0 = no crop, 0.1 = crop 10%)
+  y_start: 0.05              # Top edge crop
+  x_end: 0.95                # Right edge (1.0 = full width)
+  y_end: 0.90                # Bottom edge (< 1.0 crops bottom noise)
+
+# --- Display ---
+display:
+  show_windows: true         # Show live OpenCV windows
+  show_mask: true            # Also show the binary mask window
+  overlay_color: [0, 255, 0] # Bounding box color (BGR — green)
+  centroid_color: [0, 0, 255] # Centroid dot color (BGR — red)
+  text_color: [255, 255, 255] # Text color (BGR — white)
+  centroid_radius: 6
+  box_thickness: 2
+  font_scale: 0.6

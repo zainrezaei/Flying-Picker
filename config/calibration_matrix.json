@@ -1,8 +1,0 @@
-{
-  "matrix": [
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0]
-  ],
-  "description": "Camera calibration matrix for pixel-to-world transformation. Default identity matrix - run calibration routine to populate with actual values."
-}
