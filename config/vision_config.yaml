@@ -4,12 +4,12 @@
 
 # --- Input source ---
 input:
-  video_path: "puplic/IMG_6256.MOV"   # path relative to project root
+  video_path: "public/IMG_6256.MOV"   # path relative to project root
 
 # --- Preprocessing ---
 preprocess:
   blur_kernel_size: 5        # Gaussian blur kernel (must be odd)
-  threshold_value: 150       # Binary threshold (0-255); light object on dark bg
+  threshold_value: 100       # Binary threshold (0-255); light object on dark bg
   threshold_max: 255         # Max value for binary threshold
 
 # --- Detection ---
@@ -24,10 +24,31 @@ roi:
   x_end: 0.95                # Right edge (1.0 = full width)
   y_end: 0.90                # Bottom edge (< 1.0 crops bottom noise)
 
+# --- Calibration (checkerboard) ---
+# Used by run_camera_calibration.py. Pipeline auto-loads the result file.
+calibration:
+  board_cols: 9              # Inner corners (columns) of checkerboard
+  board_rows: 6              # Inner corners (rows) of checkerboard
+  square_size_mm: 25.0       # Physical size of one square in mm
+  result_file: "config/camera_calibration.json"   # Auto-loaded by pipeline
+
+# --- Homography (pixel → world mm) ---
+# Used by run_homography_calibration.py. Pipeline auto-loads the result file.
+homography:
+  result_file: "config/homography.json"            # Auto-loaded by pipeline
+
+# --- Belt / Conveyor ---
+# Enable belt compensation to predict pick position ahead of detection.
+belt:
+  enabled: false             # Set true once belt speed is measured
+  speed_mm_s: 0.0            # Belt linear speed in mm/s
+  detection_to_pick_delay_s: 0.0   # Time from detection to robot pick (seconds)
+  direction: "x"             # Belt motion axis: "x" (left-right) or "y" (up-down)
+
 # --- Display ---
 display:
   show_windows: true         # Show live OpenCV windows
-  show_mask: true            # Also show the binary mask window
+  show_mask: true           # Show the binary mask window (useful for debugging/tuning)
   overlay_color: [0, 255, 0] # Bounding box color (BGR — green)
   centroid_color: [0, 0, 255] # Centroid dot color (BGR — red)
   text_color: [255, 255, 255] # Text color (BGR — white)

@@ -1,11 +1,15 @@
 """
 pipeline.py — Main vision pipeline with live OpenCV overlay.
 
-Reads frames from a video file, detects a single light-coloured
-rectangular object, and displays a live window with:
-  • Green rotated bounding box
-  • Red centroid dot
-  • (x, y, θ) text overlay
+Full processing chain:
+  1. Capture frame (video file or Pi camera)
+  2. Undistort (if camera calibration exists)
+  3. ROI crop
+  4. Preprocess → binary mask
+  5. Detect object → pixel (cx, cy, angle)
+  6. Pixel → world mm (if homography calibration exists)
+  7. Belt motion compensation (if belt config present)
+  8. Draw overlay & print results
 """
 
 import os
@@ -19,6 +23,20 @@ import yaml
 from .frame_source import FrameSource
 from .preprocess import preprocess
 from .detection import detect_object
+from .calibration import (
+    calibration_exists,
+    load_calibration,
+    undistort_frame,
+    CalibrationResult,
+)
+from .coordinate_transform import (
+    homography_exists,
+    load_homography,
+    pixel_to_world,
+    compensate_belt_motion,
+    HomographyData,
+    WorldCoordinate,
+)
 
 # ------------------------------------------------------------------ #
 # Helpers                                                              #
@@ -35,7 +53,13 @@ def _load_config(config_path: str | None = None) -> dict:
         return yaml.safe_load(f)
 
 
-def _draw_overlay(frame: np.ndarray, result, cfg_display: dict) -> np.ndarray:
+def _draw_overlay(
+    frame: np.ndarray,
+    result,
+    cfg_display: dict,
+    world_coord: WorldCoordinate | None = None,
+    pick_coord: WorldCoordinate | None = None,
+) -> np.ndarray:
     """Draw bounding box, centroid, and text on the frame (in-place)."""
     overlay_color  = tuple(cfg_display.get("overlay_color", [0, 255, 0]))
     centroid_color = tuple(cfg_display.get("centroid_color", [0, 0, 255]))
@@ -51,8 +75,20 @@ def _draw_overlay(frame: np.ndarray, result, cfg_display: dict) -> np.ndarray:
     cx, cy = int(result.center_x), int(result.center_y)
     cv.circle(frame, (cx, cy), radius, centroid_color, -1)
 
-    # Text label
-    label = f"x={cx}  y={cy}  angle={result.angle:.1f} deg"
+    # Text label — show world mm if available, else pixel
+    if pick_coord is not None:
+        label = (
+            f"pick=({pick_coord.x_mm:.1f}, {pick_coord.y_mm:.1f}) mm  "
+            f"angle={pick_coord.angle_deg:.1f} deg"
+        )
+    elif world_coord is not None:
+        label = (
+            f"({world_coord.x_mm:.1f}, {world_coord.y_mm:.1f}) mm  "
+            f"angle={world_coord.angle_deg:.1f} deg"
+        )
+    else:
+        label = f"x={cx}  y={cy}  angle={result.angle:.1f} deg"
+
     cv.putText(
         frame, label,
         (cx + 12, cy - 12),
@@ -72,6 +108,10 @@ def _draw_overlay(frame: np.ndarray, result, cfg_display: dict) -> np.ndarray:
 
 def run_pipeline(config_path: str | None = None):
     """Run the full vision pipeline with live OpenCV display.
+
+    The pipeline automatically loads calibration files if they exist:
+      - config/camera_calibration.json  → lens undistortion
+      - config/homography.json          → pixel → world mm
 
     Parameters
     ----------
@@ -96,6 +136,35 @@ def run_pipeline(config_path: str | None = None):
     roi_cfg = cfg.get("roi", None)
     use_roi = roi_cfg is not None and roi_cfg.get("enabled", False)
 
+    # Belt compensation config
+    belt_cfg = cfg.get("belt", None)
+    belt_speed = 0.0
+    belt_delay = 0.0
+    belt_direction = "x"
+    if belt_cfg is not None and belt_cfg.get("enabled", False):
+        belt_speed     = belt_cfg.get("speed_mm_s", 0.0)
+        belt_delay     = belt_cfg.get("detection_to_pick_delay_s", 0.0)
+        belt_direction = belt_cfg.get("direction", "x")
+
+    # --- Load calibration files (optional) ---------------------------
+    calib_path = os.path.join(_PROJECT_ROOT, "config", "camera_calibration.json")
+    calib: CalibrationResult | None = None
+    if calibration_exists(calib_path):
+        calib = load_calibration(calib_path)
+        print(f"[pipeline] Camera calibration loaded (RMS={calib.rms_error:.4f})")
+    else:
+        print("[pipeline] No camera calibration found - skipping undistortion.")
+
+    homog_path = os.path.join(_PROJECT_ROOT, "config", "homography.json")
+    homog: HomographyData | None = None
+    if homography_exists(homog_path):
+        homog = load_homography(homog_path)
+        print(f"[pipeline] Homography loaded (err={homog.reprojection_error:.2f} mm)")
+    else:
+        print("[pipeline] No homography found - output will be in pixels.")
+
+    use_belt = belt_speed > 0 and belt_delay > 0 and homog is not None
+
     # --- Open source -------------------------------------------------
     source = FrameSource(video_path, loop=True)
     delay  = max(1, int(1000 / source.fps))
@@ -114,7 +183,11 @@ def run_pipeline(config_path: str | None = None):
         frame_num += 1
         t0 = time.perf_counter()
 
-        # Apply ROI crop if configured
+        # Step 1: Undistort (if calibrated)
+        if calib is not None:
+            frame = undistort_frame(frame, calib)
+
+        # Step 2: Apply ROI crop
         roi_x, roi_y = 0, 0
         if use_roi:
             h, w = frame.shape[:2]
@@ -126,30 +199,64 @@ def run_pipeline(config_path: str | None = None):
         else:
             cropped = frame
 
-        # 1. Preprocess
+        # Step 3: Preprocess → binary mask
         mask = preprocess(cropped, blur_kernel, thresh_val, thresh_max)
 
-        # 2. Detect
+        # Step 4: Detect object
         result = detect_object(mask, min_area)
 
-        # 3. Offset coordinates back to full frame
+        # Step 5: Offset coordinates back to full frame
         if result is not None and use_roi:
             result.center_x += roi_x
             result.center_y += roi_y
             result.box_points[:, 0] += roi_x
             result.box_points[:, 1] += roi_y
 
-        # 3. Overlay & display
-        if result is not None:
-            _draw_overlay(frame, result, cfg_display)
-            dt_ms = (time.perf_counter() - t0) * 1000
-            print(
-                f"[frame {frame_num:>5d}]  "
-                f"x={result.center_x:7.1f}  "
-                f"y={result.center_y:7.1f}  "
-                f"angle={result.angle:6.1f}°  "
-                f"({dt_ms:.1f} ms)"
+        # Step 6: Pixel → world mm
+        world_coord: WorldCoordinate | None = None
+        pick_coord: WorldCoordinate | None = None
+
+        if result is not None and homog is not None:
+            world_coord = pixel_to_world(
+                result.center_x, result.center_y, result.angle, homog
             )
+
+            # Step 7: Belt compensation → predicted pick position
+            if use_belt:
+                pick_coord = compensate_belt_motion(
+                    world_coord, belt_speed, belt_delay, belt_direction
+                )
+
+        # Step 8: Overlay & display
+        if result is not None:
+            _draw_overlay(frame, result, cfg_display, world_coord, pick_coord)
+            dt_ms = (time.perf_counter() - t0) * 1000
+
+            if pick_coord is not None:
+                print(
+                    f"[frame {frame_num:>5d}]  "
+                    f"px=({result.center_x:.0f},{result.center_y:.0f})  "
+                    f"world=({world_coord.x_mm:.1f},{world_coord.y_mm:.1f}) mm  "
+                    f"pick=({pick_coord.x_mm:.1f},{pick_coord.y_mm:.1f}) mm  "
+                    f"angle={pick_coord.angle_deg:.1f} deg  "
+                    f"({dt_ms:.1f} ms)"
+                )
+            elif world_coord is not None:
+                print(
+                    f"[frame {frame_num:>5d}]  "
+                    f"px=({result.center_x:.0f},{result.center_y:.0f})  "
+                    f"world=({world_coord.x_mm:.1f},{world_coord.y_mm:.1f}) mm  "
+                    f"angle={world_coord.angle_deg:.1f} deg  "
+                    f"({dt_ms:.1f} ms)"
+                )
+            else:
+                print(
+                    f"[frame {frame_num:>5d}]  "
+                    f"x={result.center_x:7.1f}  "
+                    f"y={result.center_y:7.1f}  "
+                    f"angle={result.angle:6.1f} deg  "
+                    f"({dt_ms:.1f} ms)"
+                )
         else:
             print(f"[frame {frame_num:>5d}]  No object detected")
 
