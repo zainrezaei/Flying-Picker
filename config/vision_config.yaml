@@ -4,8 +4,8 @@
 
 # --- Input source ---
 input:
-  video_path: "public/IMG_6256.MOV"   # path relative to project root
-
+  #video_path: "public/IMG_6256.MOV"   # path relative to project root
+  video_path: "1"
 # --- Preprocessing ---
 preprocess:
   blur_kernel_size: 5        # Gaussian blur kernel (must be odd)

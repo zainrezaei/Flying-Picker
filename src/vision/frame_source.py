@@ -1,85 +1,46 @@
-"""
-frame_source.py — Unified frame source for files (and future cameras).
-
-Wraps cv2.VideoCapture and exposes a simple read/release interface.
-A future BaslerCameraSource can implement the same interface.
-"""
-
 import cv2 as cv
+from picamera2 import Picamera2
 
 
 class FrameSource:
-    """Reads frames from a video file (or image sequence).
+    """Camera-based frame source using Picamera2."""
 
-    A future PiCameraSource (using picamera2 + Raspberry Pi Global
-    Shutter Camera) can implement the same read()/release() interface
-    and be swapped in without changing the detection pipeline.
-
-    Usage:
-        src = FrameSource("path/to/video.mov")
-        while True:
-            frame = src.read()
-            if frame is None:
-                break
-            ...
-        src.release()
-    """
-
-    def __init__(self, path: str, loop: bool = True):
-        """
-        Parameters
-        ----------
-        path : str
-            Path to a video file or image.
-        loop : bool
-            If True, restart the video from the beginning when it ends.
-        """
-        self._path = path
+    def __init__(self, path: str = None, loop: bool = True):
         self._loop = loop
-        self._cap = cv.VideoCapture(path)
 
-        if not self._cap.isOpened():
-            raise FileNotFoundError(
-                f"Cannot open video source: {path}"
-            )
+        self._camera = Picamera2()
+        config = self._camera.create_preview_configuration()
+        self._camera.configure(config)
+        self._camera.start()
 
     # ---- properties ------------------------------------------------
 
     @property
     def fps(self) -> float:
-        """Frames per second reported by the source."""
-        return self._cap.get(cv.CAP_PROP_FPS) or 30.0
+        return 30.0  # Picamera2 preview default
 
     @property
     def width(self) -> int:
-        return int(self._cap.get(cv.CAP_PROP_FRAME_WIDTH))
+        config = self._camera.camera_configuration()
+        return config["main"]["size"][0]
 
     @property
     def height(self) -> int:
-        return int(self._cap.get(cv.CAP_PROP_FRAME_HEIGHT))
+        config = self._camera.camera_configuration()
+        return config["main"]["size"][1]
 
     @property
     def frame_count(self) -> int:
-        return int(self._cap.get(cv.CAP_PROP_FRAME_COUNT))
+        return -1  # live camera = infinite
 
     # ---- core API --------------------------------------------------
 
     def read(self):
-        """Return the next BGR frame, or None if the source is exhausted."""
-        ret, frame = self._cap.read()
-
-        if not ret:
-            if self._loop:
-                self._cap.set(cv.CAP_PROP_POS_FRAMES, 0)
-                ret, frame = self._cap.read()
-            if not ret:
-                return None
-
+        frame = self._camera.capture_array()
         return frame
 
     def release(self):
-        """Release the underlying capture."""
-        self._cap.release()
+        self._camera.stop()
 
     # ---- context manager -------------------------------------------
 
@@ -91,6 +52,6 @@ class FrameSource:
 
     def __repr__(self):
         return (
-            f"FrameSource(path={self._path!r}, "
+            f"FrameSource(camera, "
             f"{self.width}x{self.height} @ {self.fps:.1f} fps)"
         )
