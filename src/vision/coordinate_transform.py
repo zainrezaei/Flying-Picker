@@ -270,6 +270,95 @@ def compensate_belt_motion(
 
 
 # ------------------------------------------------------------------ #
+# Camera-to-robot offset                                               #
+# ------------------------------------------------------------------ #
+
+def apply_camera_offset(
+    coord: WorldCoordinate,
+    offset_x_mm: float,
+    offset_y_mm: float,
+) -> WorldCoordinate:
+    """Shift world coordinates from camera frame to robot frame.
+
+    The camera's (0,0) is not necessarily the robot's (0,0).
+    This applies the measured physical offset (ΔX, ΔY) so the
+    returned coordinates are in the robot's coordinate system.
+
+    Parameters
+    ----------
+    coord : WorldCoordinate
+        Position in the camera/belt coordinate system.
+    offset_x_mm, offset_y_mm : float
+        Physical offset from camera origin to robot origin (mm).
+
+    Returns
+    -------
+    WorldCoordinate
+        Position in the robot coordinate system.
+    """
+    return WorldCoordinate(
+        x_mm=coord.x_mm + offset_x_mm,
+        y_mm=coord.y_mm + offset_y_mm,
+        angle_deg=coord.angle_deg,
+    )
+
+
+# ------------------------------------------------------------------ #
+# Pixel size → world size                                              #
+# ------------------------------------------------------------------ #
+
+def pixel_size_to_world(
+    width_px: float,
+    height_px: float,
+    center_x: float,
+    center_y: float,
+    homography: HomographyData,
+) -> tuple[float, float]:
+    """Approximate object width and height in mm using the homography.
+
+    Works by transforming two small offsets from the centroid to world
+    coordinates and measuring the resulting distances. This accounts
+    for perspective distortion at the object's location.
+
+    Parameters
+    ----------
+    width_px, height_px : float
+        Bounding-box dimensions in pixels.
+    center_x, center_y : float
+        Centroid position in pixels.
+    homography : HomographyData
+        Calibrated homography (pixel → world mm).
+
+    Returns
+    -------
+    (width_mm, height_mm) : tuple[float, float]
+        Estimated object size in mm.
+    """
+    half_w = width_px / 2.0
+    half_h = height_px / 2.0
+
+    # Four points around the centroid (left, right, top, bottom)
+    pts = np.array([
+        [[center_x - half_w, center_y]],
+        [[center_x + half_w, center_y]],
+        [[center_x, center_y - half_h]],
+        [[center_x, center_y + half_h]],
+    ], dtype=np.float32)
+
+    transformed = cv.perspectiveTransform(pts, homography.matrix)
+
+    left  = transformed[0, 0]
+    right = transformed[1, 0]
+    top   = transformed[2, 0]
+    bot   = transformed[3, 0]
+
+    width_mm  = float(np.linalg.norm(right - left))
+    height_mm = float(np.linalg.norm(bot - top))
+
+    return width_mm, height_mm
+
+
+# ------------------------------------------------------------------ #
 # Save / Load                                                          #
 # ------------------------------------------------------------------ #
 

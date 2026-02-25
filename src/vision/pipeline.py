@@ -34,6 +34,8 @@ from .coordinate_transform import (
     load_homography,
     pixel_to_world,
     compensate_belt_motion,
+    apply_camera_offset,
+    pixel_size_to_world,
     HomographyData,
     WorldCoordinate,
 )
@@ -146,6 +148,30 @@ def run_pipeline(config_path: str | None = None):
         belt_delay     = belt_cfg.get("detection_to_pick_delay_s", 0.0)
         belt_direction = belt_cfg.get("direction", "x")
 
+    # Physical measurements from calibration section
+    calib_cfg = cfg.get("calibration", {})
+    belt_width_mm       = calib_cfg.get("belt_width_mm", 0.0)
+    camera_height_mm    = calib_cfg.get("camera_height_mm", 0.0)
+    cam_offset_x        = calib_cfg.get("camera_offset_x_mm", 0.0)
+    cam_offset_y        = calib_cfg.get("camera_offset_y_mm", 0.0)
+    exp_obj_w           = calib_cfg.get("expected_object_width_mm", 0.0)
+    exp_obj_h           = calib_cfg.get("expected_object_height_mm", 0.0)
+    obj_tol_pct         = calib_cfg.get("object_size_tolerance_pct", 25.0)
+
+    use_cam_offset   = cam_offset_x != 0.0 or cam_offset_y != 0.0
+    use_size_check   = exp_obj_w > 0.0 and exp_obj_h > 0.0
+
+    if belt_width_mm > 0:
+        print(f"[pipeline] Belt width: {belt_width_mm:.0f} mm")
+    if camera_height_mm > 0:
+        print(f"[pipeline] Camera height above belt: {camera_height_mm:.0f} mm")
+    if use_cam_offset:
+        print(f"[pipeline] Camera→robot offset: "
+              f"ΔX={cam_offset_x:.1f} mm, ΔY={cam_offset_y:.1f} mm")
+    if use_size_check:
+        print(f"[pipeline] Expected object size: "
+              f"{exp_obj_w:.0f}×{exp_obj_h:.0f} mm (±{obj_tol_pct:.0f}%)")
+
     # --- Load calibration files (optional) ---------------------------
     calib_path = os.path.join(_PROJECT_ROOT, "config", "camera_calibration.json")
     calib: CalibrationResult | None = None
@@ -220,6 +246,27 @@ def run_pipeline(config_path: str | None = None):
             world_coord = pixel_to_world(
                 result.center_x, result.center_y, result.angle, homog
             )
+
+            # Step 6b: Camera → robot offset
+            if use_cam_offset:
+                world_coord = apply_camera_offset(
+                    world_coord, cam_offset_x, cam_offset_y
+                )
+
+            # Step 6c: Object size sanity check
+            if use_size_check:
+                det_w, det_h = pixel_size_to_world(
+                    result.width, result.height,
+                    result.center_x, result.center_y, homog
+                )
+                w_err = abs(det_w - exp_obj_w) / exp_obj_w * 100
+                h_err = abs(det_h - exp_obj_h) / exp_obj_h * 100
+                if w_err > obj_tol_pct or h_err > obj_tol_pct:
+                    print(
+                        f"[WARNING] Object size {det_w:.1f}×{det_h:.1f} mm "
+                        f"deviates from expected {exp_obj_w:.0f}×{exp_obj_h:.0f} mm "
+                        f"(w_err={w_err:.1f}%, h_err={h_err:.1f}%)"
+                    )
 
             # Step 7: Belt compensation → predicted pick position
             if use_belt:

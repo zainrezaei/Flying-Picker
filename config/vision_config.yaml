@@ -32,6 +32,15 @@ calibration:
   square_size_mm: 25.0       # Physical size of one square in mm
   result_file: "config/camera_calibration.json"   # Auto-loaded by pipeline
 
+  # --- Physical measurements (fill in once measured on-site) ---
+  belt_width_mm: 0.0                 # (#1) Conveyor belt width in mm
+  camera_height_mm: 0.0              # (#3) Camera lens height above belt surface in mm
+  camera_offset_x_mm: 0.0            # (#4) Camera X offset from robot origin in mm
+  camera_offset_y_mm: 0.0            # (#4) Camera Y offset from robot origin in mm
+  expected_object_width_mm: 0.0       # (#5) Expected object width for sanity check (mm)
+  expected_object_height_mm: 0.0      # (#5) Expected object height for sanity check (mm)
+  object_size_tolerance_pct: 25.0     # (#5) Acceptable size deviation (%) before warning
+
 # --- Homography (pixel → world mm) ---
 # Used by run_homography_calibration.py. Pipeline auto-loads the result file.
 homography:
