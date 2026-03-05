@@ -15,6 +15,7 @@ Full processing chain:
 import os
 import sys
 import time
+import socket
 
 import cv2 as cv
 import numpy as np
@@ -121,6 +122,16 @@ def run_pipeline(config_path: str | None = None):
         Path to YAML config. Defaults to config/vision_config.yaml.
     """
     cfg = _load_config(config_path)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) 
+    try:
+        sock.connect(("localhost", 5005))
+        print("[pipeline] Connected to RTDE sender socket.")
+    except Exception as e:
+        print(f"[ERROR] Could not connect to RTDE sender socket: {e}")
+        sock = None  # Disable socket sending    
+
 
     # --- Unpack config -----------------------------------------------
     video_path = os.path.join(_PROJECT_ROOT, cfg["input"]["video_path"])
@@ -274,6 +285,17 @@ def run_pipeline(config_path: str | None = None):
                     world_coord, belt_speed, belt_delay, belt_direction
                 )
 
+            # RTDE sender
+            coord = pick_coord or world_coord
+            if coord is not None and sock is not None:
+                try:
+                    msg = f"{coord.x_mm:.3f},{coord.y_mm:.3f},{coord.angle_deg:.3f}\n"
+                    sock.sendall(msg.encode("utf-8"))
+                    #print(f"[pipeline] Sent to RTDE sender: {msg}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to send data over socket: {e}")
+                    sock = None  # Disable further attempts
+
         # Step 8: Overlay & display
         if result is not None:
             _draw_overlay(frame, result, cfg_display, world_coord, pick_coord)
@@ -310,6 +332,9 @@ def run_pipeline(config_path: str | None = None):
         cv.imshow("Flying Picker - Detection", frame)
 
         if show_mask:
+
+           #resized_mask = cv.resize(mask, (640, 480))
+           #cv.imshow("Flying Picker - Mask", resized_mask)
             cv.imshow("Flying Picker - Mask", mask)
 
         # Quit on 'q'
@@ -318,6 +343,11 @@ def run_pipeline(config_path: str | None = None):
             break
 
     source.release()
+    if sock is not None:
+        try:
+            sock.close()
+        except:
+            pass
     cv.destroyAllWindows()
 
 

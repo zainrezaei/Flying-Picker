@@ -79,8 +79,8 @@ def calibrate_homography(
     >>> h = calibrate_homography(pixel_pts, world_pts)
     >>> print(h.matrix)
     """
-    pixel_points = np.array(pixel_points, dtype=np.float32)
-    world_points = np.array(world_points, dtype=np.float32)
+    pixel_points = np.array([[0,0],[638,0],[638,474],[0,474]], dtype=np.float32)
+    world_points = np.array([[174, -972], [374, -972], [374, -1102], [174, -1102]], dtype=np.float32)  # mm
 
     if len(pixel_points) < 4:
         raise ValueError(f"Need at least 4 point pairs, got {len(pixel_points)}")

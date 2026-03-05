@@ -31,7 +31,7 @@ import numpy as np
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_CALIB_PATH = os.path.join(_PROJECT_ROOT, "config", "camera_calibration.json")
-
+IMAGE_DIR = os.path.join(_PROJECT_ROOT, "calib_images")
 
 @dataclass
 class CalibrationResult:
@@ -52,11 +52,23 @@ class CalibrationResult:
 # ------------------------------------------------------------------ #
 
 def calibrate_from_images(
-    image_paths: list[str],
+    image_paths: Optional[list[str]] = None,
     board_size: tuple[int, int] = (9, 6),
     square_size_mm: float = 25.0,
     show_corners: bool = True,
 ) -> CalibrationResult:
+    if image_paths is None:
+        # Scan directory at runtime
+        image_paths = (
+            glob.glob(os.path.join(IMAGE_DIR, "*")) +
+            glob.glob(os.path.join(IMAGE_DIR, "*.jpeg")) +
+            glob.glob(os.path.join(IMAGE_DIR, "*.JPG")) +
+            glob.glob(os.path.join(IMAGE_DIR, "*.JPEG"))
+        )
+
+    print(f"[calibration] Processing {len(image_paths)} images from {IMAGE_DIR} "
+          f"(board {board_size[0]}×{board_size[1]}, square {square_size_mm} mm)...")
+    
     """Run camera calibration from a set of checkerboard images.
 
     Parameters
@@ -86,6 +98,7 @@ def calibrate_from_images(
     criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
     print(f"[calibration] Processing {len(image_paths)} images "
+          f"from {IMAGE_DIR}"
           f"(board {board_size[0]}×{board_size[1]}, square {square_size_mm} mm)...")
 
     for i, path in enumerate(image_paths):
@@ -115,8 +128,11 @@ def calibrate_from_images(
         else:
             print(f"  [{i+1}] SKIP  — no corners found: {os.path.basename(path)}")
 
-    if show_corners:
-        cv.destroyWindow("Checkerboard Corners")
+    if show_corners and len(obj_points) > 0:
+        try:
+            cv.destroyWindow("Checkerboard Corners")
+        except cv.error:
+            pass
 
     if len(obj_points) < 3:
         raise ValueError(
@@ -156,8 +172,8 @@ def calibrate_live(
     source,
     board_size: tuple[int, int] = (9, 6),
     square_size_mm: float = 25.0,
-    num_captures: int = 15,
-    save_images_dir: str | None = None,
+    num_captures: int = 20,
+    save_images_dir: str = "/home/rasp5/flypicker2/Flying-Picker/calib_images",
 ) -> CalibrationResult:
     """Interactive calibration — capture checkerboard images from a live source.
 
@@ -337,3 +353,8 @@ def undistort_frame(frame: np.ndarray, calib: CalibrationResult) -> np.ndarray:
     if calib.map1 is None or calib.map2 is None:
         _compute_maps(calib)
     return cv.remap(frame, calib.map1, calib.map2, cv.INTER_LINEAR)
+
+#f __name__ == "__main__":
+    # calibrate from saved images
+#   calib_result = calibrate_from_images(show_corners=True)
+#   save_calibration(calib_result)

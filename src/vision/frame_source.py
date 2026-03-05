@@ -9,9 +9,13 @@ class FrameSource:
         self._loop = loop
 
         self._camera = Picamera2()
-        config = self._camera.create_preview_configuration()
+        config = self._camera.create_preview_configuration(
+            main={"size": (640, 480)},
+            lores={"size": (640, 480)}
+        )
         self._camera.configure(config)
         self._camera.start()
+        #self._camera.start_preview(Fullscreen=False, window=(0, 0, 640, 480))
 
     # ---- properties ------------------------------------------------
 

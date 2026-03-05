@@ -19,10 +19,10 @@ detection:
 # --- Region of Interest (crop frame edges to remove noise) ---
 roi:
   enabled: true
-  x_start: 0.05              # Left edge crop (0.0 = no crop, 0.1 = crop 10%)
-  y_start: 0.05              # Top edge crop
-  x_end: 0.95                # Right edge (1.0 = full width)
-  y_end: 0.90                # Bottom edge (< 1.0 crops bottom noise)
+  x_start: 0.0            # Left edge crop (0.0 = no crop, 0.1 = crop 10%)
+  y_start: 0.0          # Top edge crop
+  x_end: 1.0             # Right edge (1.0 = full width)
+  y_end: 0.99              # Bottom edge (< 1.0 crops bottom noise)
 
 # --- Calibration (checkerboard) ---
 # Used by run_camera_calibration.py. Pipeline auto-loads the result file.
