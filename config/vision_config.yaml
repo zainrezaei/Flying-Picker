@@ -4,8 +4,8 @@
 
 # --- Input source ---
 input:
-  #video_path: "public/IMG_6256.MOV"   # path relative to project root
-  video_path: "1"
+  video_path: "public/IMG_6256.MOV"   # path relative to project root
+  #video_path: "1"
 # --- Preprocessing ---
 preprocess:
   blur_kernel_size: 5        # Gaussian blur kernel (must be odd)
@@ -15,6 +15,11 @@ preprocess:
 # --- Detection ---
 detection:
   min_contour_area: 5000     # Ignore contours smaller than this (pixels²)
+  max_contour_area: 200000   # Ignore contours larger than this (pixels²); 0 = no limit
+  min_solidity: 0.80         # Min contour-area / convex-hull-area ratio (0–1); 0 = disabled
+  min_aspect_ratio: 0.3      # Min width/height of rotated bbox; 0 = disabled
+  max_aspect_ratio: 3.0      # Max width/height of rotated bbox; 0 = disabled
+  min_confidence: 0.50       # Reject detections below this confidence (0–1)
 
 # --- Region of Interest (crop frame edges to remove noise) ---
 roi:

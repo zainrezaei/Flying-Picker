@@ -140,7 +140,13 @@ def run_pipeline(config_path: str | None = None):
     thresh_val  = cfg["preprocess"]["threshold_value"]
     thresh_max  = cfg["preprocess"]["threshold_max"]
 
-    min_area    = cfg["detection"]["min_contour_area"]
+    det_cfg     = cfg["detection"]
+    min_area    = det_cfg["min_contour_area"]
+    max_area    = det_cfg.get("max_contour_area", 0)
+    min_solidity    = det_cfg.get("min_solidity", 0.0)
+    min_aspect      = det_cfg.get("min_aspect_ratio", 0.0)
+    max_aspect      = det_cfg.get("max_aspect_ratio", 0.0)
+    min_confidence  = det_cfg.get("min_confidence", 0.0)
 
     show_mask   = cfg["display"].get("show_mask", True)
     cfg_display = cfg["display"]
@@ -240,7 +246,18 @@ def run_pipeline(config_path: str | None = None):
         mask = preprocess(cropped, blur_kernel, thresh_val, thresh_max)
 
         # Step 4: Detect object
-        result = detect_object(mask, min_area)
+        result = detect_object(
+            mask,
+            min_area=min_area,
+            max_area=max_area,
+            min_solidity=min_solidity,
+            min_aspect_ratio=min_aspect,
+            max_aspect_ratio=max_aspect,
+        )
+
+        # Gate on confidence
+        if result is not None and result.confidence < min_confidence:
+            result = None
 
         # Step 5: Offset coordinates back to full frame
         if result is not None and use_roi:
@@ -308,6 +325,7 @@ def run_pipeline(config_path: str | None = None):
                     f"world=({world_coord.x_mm:.1f},{world_coord.y_mm:.1f}) mm  "
                     f"pick=({pick_coord.x_mm:.1f},{pick_coord.y_mm:.1f}) mm  "
                     f"angle={pick_coord.angle_deg:.1f} deg  "
+                    f"conf={result.confidence:.2f}  "
                     f"({dt_ms:.1f} ms)"
                 )
             elif world_coord is not None:
@@ -316,6 +334,7 @@ def run_pipeline(config_path: str | None = None):
                     f"px=({result.center_x:.0f},{result.center_y:.0f})  "
                     f"world=({world_coord.x_mm:.1f},{world_coord.y_mm:.1f}) mm  "
                     f"angle={world_coord.angle_deg:.1f} deg  "
+                    f"conf={result.confidence:.2f}  "
                     f"({dt_ms:.1f} ms)"
                 )
             else:
@@ -324,6 +343,7 @@ def run_pipeline(config_path: str | None = None):
                     f"x={result.center_x:7.1f}  "
                     f"y={result.center_y:7.1f}  "
                     f"angle={result.angle:6.1f} deg  "
+                    f"conf={result.confidence:.2f}  "
                     f"({dt_ms:.1f} ms)"
                 )
         else:
