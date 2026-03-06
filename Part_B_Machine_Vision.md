@@ -30,6 +30,19 @@ First, **intrinsic camera calibration** is performed to eliminate lens distortio
 
 Second, a **homography transformation** is employed to map the undistorted 2D pixel coordinates to real-world 2D coordinates on the surface of the conveyor belt. By placing markers at known physical distances on the belt and recording their corresponding pixel coordinates, a 3x3 transformation matrix is generated. During real-time operation, the pipeline multiplies the detected workpiece centroid $(x, y)$ in pixels by this homography matrix, outputting the precise $(X, Y)$ position in millimeters relative to a defined origin point on the conveyor. This ensures the vision system and the cobot share a unified coordinate space.
 
+### 5) Confidence-based detection filtering
+The minimum area threshold alone cannot prevent false positives on an empty belt — reflections, lighting gradients, and belt texture can produce contours large enough to pass. To solve this, each candidate contour is subjected to additional geometric gates: a **solidity** check (contour area ÷ convex hull area ≥ 0.80), an **aspect ratio** range (0.3–3.0), and a **maximum area** cap (200,000 px²). Contours that pass all gates receive a **confidence score** (0–1), computed as the average of solidity and rectangularity (contour area ÷ bounding box area). Only detections above a configurable confidence threshold (default 0.50) are accepted; everything below is discarded, preventing the system from sending spurious coordinates to the robot. All thresholds are tuneable in `config/vision_config.yaml`.
+
+### 6) Libraries and dependencies
+
+| Library | Purpose |
+|---------|---------|
+| **OpenCV** (`opencv-python`) | Core vision: image I/O, preprocessing, contour detection, camera calibration, homography, and live display |
+| **NumPy** (`numpy`) | Array operations for frames and coordinate transforms; required by OpenCV internally |
+| **PyYAML** (`pyyaml`) | Parses the YAML configuration file so all parameters are editable without code changes |
+| **Picamera2** (`picamera2`) | Captures frames from the Raspberry Pi Global Shutter Camera (Sony IMX296) via `libcamera` |
+| **PySerial** (`pyserial`) | Sends final $(X, Y, \theta)$ coordinates to the robot controller over serial |
+
 ### Vision Pipeline Flow
 
 To visually summarize the execution flow described above, Figure X illustrates the sequential operations performed on every incoming camera frame.
@@ -63,9 +76,11 @@ To visually summarize the execution flow described above, Figure X illustrates t
 │                     │              │   │                  │     │
 │                     │ BGR→Gray     │   │ Find contours   │     │
 │                     │ Gaussian blur│   │ Largest contour │     │
-│                     │ Binary thresh│   │ minAreaRect()   │     │
-│                     │ Morph close  │   │ → (x, y, θ) px  │     │
-│                     └──────────────┘   └───────┬──────────┘     │
+│                     │ Binary thresh│   │ Solidity gate   │     │
+│                     │ Morph close  │   │ Aspect ratio    │     │
+│                     └──────────────┘   │ Confidence score│     │
+│                                        │ → (x, y, θ) px  │     │
+│                                        └───────┬──────────┘     │
 │                                                │                │
 │                                                ▼                │
 │                     ┌──────────────┐   ┌──────────────────┐     │
@@ -106,3 +121,4 @@ The side-by-side image below illustrates the result of the vision pipeline opera
 The green rectangle represents the computed minimum-area rotated bounding box. At its center lies the calculated red centroid alongside the normalized rotation angle, actively predicting exactly how the collaborative robot must approach and rotate to retrieve the targeted metallic sheet.
 
 ![Vision Pipeline Detection and Mask](/Users/zain/.gemini/antigravity/brain/cf73f009-3a05-4132-a74b-c8de63cdc12f/vision_result_demo.jpg)
+
