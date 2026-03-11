@@ -325,8 +325,8 @@ def run_pipeline(config_path: str | None = None):
                     rtde_sender.send_pose(coord.x_mm, coord.y_mm, coord.angle_deg, 1.0)
                     object_present = True
                     print(f"[INFO] Sent pose to robot: x={coord.x_mm:.1f} mm, y={coord.y_mm:.1f} mm, angle={coord.angle_deg:.1f} deg")
-                elif object_present == False:
-                    rtde_sender.send_pose(0.2, 1.0, 0.0, 0.0)  # Indicate no object
+                elif object_present:
+                    rtde_sender.send_pose(0.2, 1.0, 0.0, 0)  # Indicate no object
                     object_present = False
                     print(f"[INFO] Sent no-object signal to robot.")
             except Exception as e:
