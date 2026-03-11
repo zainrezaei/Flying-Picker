@@ -40,6 +40,7 @@ from .coordinate_transform import (
     HomographyData,
     WorldCoordinate,
 )
+from .RTDEsender import Sender
 
 # ------------------------------------------------------------------ #
 # Helpers                                                              #
@@ -123,15 +124,27 @@ def run_pipeline(config_path: str | None = None):
     """
     cfg = _load_config(config_path)
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) 
-    try:
-        sock.connect(("localhost", 5005))
-        print("[pipeline] Connected to RTDE sender socket.")
-    except Exception as e:
-        print(f"[ERROR] Could not connect to RTDE sender socket: {e}")
-        sock = None  # Disable socket sending    
+    ROBOT_IP = "169.254.30.160"
+    ROBOT_PORT = 30004
+    config_file = "rtde_config.xml"
 
+    rtde_sender = Sender(ROBOT_IP, ROBOT_PORT, config_file)
+    attempts = 0
+    max_attempts = 5
+    connected = False
+    while attempts < max_attempts:
+        try:
+            print("Connecting to robot...")
+            rtde_sender.connect()
+            print("Connected to robot!")
+            connected = True
+            break
+        except Exception as e:
+            attempts += 1
+            print(f"Error connecting to robot (attempt {attempts}/5): {e}")
+            time.sleep(1)
+    if not connected:
+        print("Failed to connect to robot after multiple attempts. Exiting.")
 
     # --- Unpack config -----------------------------------------------
     video_path = os.path.join(_PROJECT_ROOT, cfg["input"]["video_path"])
@@ -304,14 +317,21 @@ def run_pipeline(config_path: str | None = None):
 
             # RTDE sender
             coord = pick_coord or world_coord
-            if coord is not None and sock is not None:
+            if connected and coord is not None:
                 try:
                     msg = f"{coord.x_mm:.3f},{coord.y_mm:.3f},{coord.angle_deg:.3f}\n"
-                    sock.sendall(msg.encode("utf-8"))
-                    #print(f"[pipeline] Sent to RTDE sender: {msg}")
+                    rtde_sender.send_pose(coord.x_mm, coord.y_mm, coord.angle_deg)
+                    print(f"[pipeline] Sent to robotr: {msg}")
                 except Exception as e:
                     print(f"[ERROR] Failed to send data over socket: {e}")
-                    sock = None  # Disable further attempts
+                    connected = False
+            if not connected and frame_num % 10 == 0:
+                try:
+                    rtde_sender.connect()
+                    connected = True
+                    print("[INFO] Reconnected to robot.")
+                except Exception as e:
+                    print(f"[WARNING] Still cannot reconnect to robot: {e}")
 
         # Step 8: Overlay & display
         if result is not None:
@@ -363,11 +383,7 @@ def run_pipeline(config_path: str | None = None):
             break
 
     source.release()
-    if sock is not None:
-        try:
-            sock.close()
-        except:
-            pass
+
     cv.destroyAllWindows()
 
 

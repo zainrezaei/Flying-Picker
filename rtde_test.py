@@ -42,7 +42,6 @@ while attempt < max_attempts:
 
 if attempt == max_attempts:
     print("Failed to connect after multiple attempts.")
-    sys.exit(1)
 
 con.send_output_setup(output_names, output_types)
 inputs = con.send_input_setup(input_names, input_types)

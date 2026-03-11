@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <rtde_config>
     <recipe key="inputs">
-        <field name="input_double_register_24" type="DOUBLE"/>
-        <field name="input_double_register_25" type="DOUBLE"/>
-        <field name="input_double_register_26" type="DOUBLE"/>
+        <field name="input_double_register_0" type="DOUBLE"/>
+        <field name="input_double_register_1" type="DOUBLE"/>
+        <field name="input_double_register_2" type="DOUBLE"/>
     </recipe>
 
     <recipe key="outputs">
