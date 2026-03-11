@@ -228,6 +228,8 @@ def run_pipeline(config_path: str | None = None):
     print(f"[pipeline] Opened {source}")
     print(f"[pipeline] Press 'q' to quit.\n")
 
+    object_present = False
+
     frame_num = 0
 
     while True:
@@ -316,22 +318,30 @@ def run_pipeline(config_path: str | None = None):
                 )
 
             # RTDE sender
-            coord = pick_coord or world_coord
-            if connected and coord is not None:
-                try:
-                    msg = f"{coord.x_mm:.3f},{coord.y_mm:.3f},{coord.angle_deg:.3f}\n"
-                    rtde_sender.send_pose(coord.x_mm, coord.y_mm, coord.angle_deg, 1)
-                    print(f"[pipeline] Sent to robotr: {msg}")
-                except Exception as e:
-                    print(f"[ERROR] Failed to send data over socket: {e}")
-                    connected = False
-            if not connected and frame_num % 10 == 0:
-                try:
-                    rtde_sender.connect()
-                    connected = True
-                    print("[INFO] Reconnected to robot.")
-                except Exception as e:
-                    print(f"[WARNING] Still cannot reconnect to robot: {e}")
+        coord = pick_coord or world_coord
+        if connected:
+            try:
+                if coord is not None:
+                    rtde_sender.send_pose(coord.x_mm, coord.y_mm, coord.angle_deg, 1.0)
+                    object_present = True
+                    print(f"[INFO] Sent pose to robot: x={coord.x_mm:.1f} mm, y={coord.y_mm:.1f} mm, angle={coord.angle_deg:.1f} deg")
+                elif object_present == False:
+                    rtde_sender.send_pose(0.2, 1.0, 0.0, 0.0)  # Indicate no object
+                    object_present = False
+                    print(f"[INFO] Sent no-object signal to robot.")
+            except Exception as e:
+                print(f"[ERROR] Failed to send pose to robot: {e}")
+                connected = False
+
+            
+        if not connected and frame_num % 10 == 0:
+            try:
+                rtde_sender.connect()
+                connected = True
+                print("[INFO] Reconnected to robot.")
+            except Exception as e:
+                print(f"[WARNING] Still cannot reconnect to robot: {e}")
+            
 
         # Step 8: Overlay & display
         if result is not None:
