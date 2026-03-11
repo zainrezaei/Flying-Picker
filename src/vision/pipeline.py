@@ -124,7 +124,7 @@ def run_pipeline(config_path: str | None = None):
     """
     cfg = _load_config(config_path)
 
-    ROBOT_IP = "169.254.30.160"
+    ROBOT_IP = "192.168.10.2"
     ROBOT_PORT = 30004
     config_file = "rtde_config.xml"
 
@@ -320,7 +320,7 @@ def run_pipeline(config_path: str | None = None):
             if connected and coord is not None:
                 try:
                     msg = f"{coord.x_mm:.3f},{coord.y_mm:.3f},{coord.angle_deg:.3f}\n"
-                    rtde_sender.send_pose(coord.x_mm, coord.y_mm, coord.angle_deg)
+                    rtde_sender.send_pose(coord.x_mm, coord.y_mm, coord.angle_deg, 1)
                     print(f"[pipeline] Sent to robotr: {msg}")
                 except Exception as e:
                     print(f"[ERROR] Failed to send data over socket: {e}")

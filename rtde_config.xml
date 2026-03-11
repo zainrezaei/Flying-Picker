@@ -4,6 +4,7 @@
         <field name="input_double_register_0" type="DOUBLE"/>
         <field name="input_double_register_1" type="DOUBLE"/>
         <field name="input_double_register_2" type="DOUBLE"/>
+        <field name="input_double_register_3" type="DOUBLE"/>
     </recipe>
 
     <recipe key="outputs">
