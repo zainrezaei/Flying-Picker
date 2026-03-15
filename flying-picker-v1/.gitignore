@@ -1,0 +1,14 @@
+# Python junk
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Large Data (Do not upload videos to GitHub)
+*.mp4
+*.avi
+*.h5
+
+# OS junk
+.DS_Store
+Thumbs.db

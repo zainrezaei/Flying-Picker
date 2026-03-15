@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<rtde_config>
+    <recipe key="inputs">
+        <field name="input_double_register_0" type="DOUBLE"/>
+        <field name="input_double_register_1" type="DOUBLE"/>
+        <field name="input_double_register_2" type="DOUBLE"/>
+        <field name="input_double_register_3" type="DOUBLE"/>
+    </recipe>
+
+    <recipe key="outputs">
+        <field name="actual_TCP_pose" type="VECTOR6D"/>
+    </recipe>
+</rtde_config>
