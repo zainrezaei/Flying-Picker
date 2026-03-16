@@ -41,6 +41,7 @@ from .coordinate_transform import (
     WorldCoordinate,
 )
 from .RTDEsender import Sender
+from .detection_tracker import DetectionTracker
 
 # ------------------------------------------------------------------ #
 # Helpers                                                              #
@@ -145,6 +146,17 @@ def run_pipeline(config_path: str | None = None):
             time.sleep(1)
     if not connected:
         print("Failed to connect to robot after multiple attempts. Exiting.")
+
+    # --- Detection tracker (single-send with debounce) ---------------
+    track_cfg = cfg.get("tracking", {})
+    tracker = DetectionTracker(
+        confirm_frames=track_cfg.get("confirm_frames", 3),
+        exit_frames=track_cfg.get("exit_frames", 5),
+        distance_threshold_mm=track_cfg.get("distance_threshold_mm", 20.0),
+    )
+    print(f"[pipeline] Detection tracker: confirm={tracker.confirm_frames} frames, "
+          f"exit={tracker.exit_frames} frames, "
+          f"distance_threshold={tracker.distance_threshold_mm:.1f} mm")
 
     # --- Unpack config -----------------------------------------------
     video_path = os.path.join(_PROJECT_ROOT, cfg["input"]["video_path"])
@@ -317,23 +329,26 @@ def run_pipeline(config_path: str | None = None):
                     world_coord, belt_speed, belt_delay, belt_direction
                 )
 
-            # RTDE sender
-        coord = pick_coord or world_coord
+        # Step 7b: Feed tracker and send to robot (runs every frame)
+        coord = pick_coord or world_coord  # None when no detection
+        tracker_result = tracker.update(coord)
+
         if connected:
             try:
-                if coord is not None:
-                    rtde_sender.send_pose(coord.x_mm, coord.y_mm, coord.angle_deg, 1.0)
+                if tracker_result.should_send and tracker_result.coord is not None:
+                    c = tracker_result.coord
+                    rtde_sender.send_pose(c.x_mm, c.y_mm, c.angle_deg, 1.0)
                     object_present = True
-                    print(f"[INFO] Sent pose to robot: x={coord.x_mm:.1f} mm, y={coord.y_mm:.1f} mm, angle={coord.angle_deg:.1f} deg")
-                elif object_present:
+                    print(f"[SEND] Pose sent to robot: x={c.x_mm:.1f} mm, "
+                          f"y={c.y_mm:.1f} mm, angle={c.angle_deg:.1f} deg")
+                elif object_present and coord is None and tracker.state == "IDLE":
                     rtde_sender.send_pose(0.2, 1.0, 0.0, 0)  # Indicate no object
                     object_present = False
-                    print(f"[INFO] Sent no-object signal to robot.")
+                    print(f"[SEND] No-object signal sent to robot.")
             except Exception as e:
                 print(f"[ERROR] Failed to send pose to robot: {e}")
                 connected = False
 
-            
         if not connected and frame_num % 10 == 0:
             try:
                 rtde_sender.connect()
@@ -393,6 +408,7 @@ def run_pipeline(config_path: str | None = None):
             break
 
     source.release()
+    rtde_sender.close()
 
     cv.destroyAllWindows()
 

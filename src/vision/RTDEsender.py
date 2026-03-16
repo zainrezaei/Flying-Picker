@@ -55,4 +55,3 @@ class Sender:
                 self.con.disconnect()
             except Exception:
                 pass
-                

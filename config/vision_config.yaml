@@ -59,6 +59,13 @@ belt:
   detection_to_pick_delay_s: 0.0   # Time from detection to robot pick (seconds)
   direction: "x"             # Belt motion axis: "x" (left-right) or "y" (up-down)
 
+# --- Detection Tracking (single-send with debounce) ---
+# Prevents duplicate coordinate sends for the same part.
+tracking:
+  confirm_frames: 3          # Consecutive detections before sending (filters jitter)
+  exit_frames: 5             # Consecutive no-detections before resetting (absorbs dropouts)
+  distance_threshold_mm: 20  # Distance jump (mm) to consider a "new part"
+
 # --- Display ---
 display:
   show_windows: true         # Show live OpenCV windows
