@@ -1,6 +1,6 @@
 # Flying Picker — Vision System
 
-A computer-vision pipeline that detects a rectangular object on a conveyor belt, extracts its **position (x, y)** and **orientation (angle)**, and displays the results in a live overlay window. Designed as the "eyes" of a robotic pick-and-place system.
+A computer-vision pipeline that detects a rectangular object on a conveyor belt, extracts its **position (x, y)** and **orientation (angle)**, and sends the coordinates to a **Universal Robots (UR)** manipulator via **RTDE** (Real-Time Data Exchange). Designed as the "eyes" of a robotic pick-and-place system.
 
 ---
 
@@ -60,8 +60,10 @@ flying-picker-v1/
 │   │   ├── frame_source.py        # FrameSource class — reads frames from video/camera
 │   │   ├── preprocess.py          # Grayscale → blur → threshold → morphology
 │   │   ├── detection.py           # Contour detection → minAreaRect → (x, y, angle)
+│   │   ├── detection_tracker.py   # Single-send debounce — one coordinate set per part
 │   │   ├── calibration.py         # Camera intrinsic calibration (undistortion)
 │   │   ├── coordinate_transform.py # Pixel→world homography + belt compensation
+│   │   ├── RTDEsender.py          # RTDE communication with UR robot
 │   │   └── pipeline.py            # Main loop — ties everything together + live overlay
 │   │
 │   └── robot/                     # (empty — future robot communication module)
@@ -123,6 +125,20 @@ flying-picker-v1/
 │                     │  enabled)    │   └──────────────────┘     │
 │                     │ → pick pos   │                            │
 │                     └──────┬───────┘                            │
+│                            │                                    │
+│                            ▼                                    │
+│              ┌───────────────────────────┐                      │
+│              │ DetectionTracker          │                      │
+│              │ • Debounce (3 frames)     │                      │
+│              │ • Send once per part      │                      │
+│              │ • Distance-based new part │                      │
+│              └────────────┬──────────────┘                      │
+│                           │ should_send=True (once)             │
+│                           ▼                                     │
+│              ┌───────────────────────────┐                      │
+│              │ RTDEsender                │                      │
+│              │ → Send (X, Y, θ) to robot │                      │
+│              └───────────────────────────┘                      │
 │                            │                                    │
 │                            ▼                                    │
 │                   ┌────────────────┐                            │
@@ -199,7 +215,38 @@ DetectionResult(
 )
 ```
 
-### 4. Overlay & Display (`pipeline.py`)
+### 4. Detection Tracking (`detection_tracker.py`)
+
+Raw detections are jittery — the same part may be detected, lost for a frame, then detected again. Without tracking, this would send **duplicate coordinates** to the robot. The `DetectionTracker` solves this with a **frame-based state machine**:
+
+```
+IDLE  →  (3 consecutive detections)  →  CONFIRMING
+CONFIRMING  →  (confirmed)  →  SENT       (sends averaged coordinates ONCE)
+SENT  →  (5 consecutive no-detections)  →  IDLE
+```
+
+| Parameter | Default | Purpose |
+|-----------|---------|--------|
+| `confirm_frames` | 3 | Consecutive detection frames required before sending (filters jitter) |
+| `exit_frames` | 5 | Consecutive no-detection frames required before resetting (absorbs dropouts) |
+| `distance_threshold_mm` | 20 | If a new detection jumps more than this from the locked position, treat it as a new part |
+
+All parameters are configurable in `vision_config.yaml` under `tracking:`.
+
+### 5. Robot Communication (`RTDEsender.py`)
+
+The `Sender` class uses the **RTDE** (Real-Time Data Exchange) protocol to send coordinates to a Universal Robots manipulator. It sends:
+
+| Register | Value |
+|----------|-------|
+| `input_double_register_0` | X position (metres) |
+| `input_double_register_1` | Y position (metres) |
+| `input_double_register_2` | Angle (radians) |
+| `input_double_register_3` | Valid flag (1.0 = object, 0.0 = no object) |
+
+Unit conversion (mm→m, deg→rad) happens inside `send_pose()` so the rest of the pipeline stays in mm/degrees.
+
+### 6. Overlay & Display (`pipeline.py`)
 
 The pipeline draws on the original frame and shows it:
 
@@ -213,7 +260,8 @@ Two windows are shown:
 
 Console output each frame:
 ```
-[frame   42]  x=  330.4  y=  586.7  angle=   2.3°  (0.8 ms)
+[frame   42]  px=(330,587)  world=(280.7,-1226.1) mm  angle=2.3 deg  conf=0.93  (5.4 ms)
+[SEND] Pose sent to robot: x=280.7 mm, y=-1226.1 mm, angle=2.3 deg
 ```
 
 ---
@@ -313,6 +361,11 @@ belt:                         # Conveyor compensation
   detection_to_pick_delay_s: 0.0
   direction: "x"              # "x" or "y"
 
+tracking:                     # Detection debounce (single-send per part)
+  confirm_frames: 3           # Consecutive detections before sending
+  exit_frames: 5              # Consecutive no-detections before resetting
+  distance_threshold_mm: 20   # Distance jump (mm) to consider a "new part"
+
 display:
   show_windows: true
   show_mask: true
@@ -335,9 +388,10 @@ display:
 
 | Component | File | Status |
 |-----------|------|--------|
-| Frame source (video file) | `src/vision/frame_source.py` | ✅ Done |
+| Frame source (video/camera) | `src/vision/frame_source.py` | ✅ Done |
 | Preprocessing (threshold) | `src/vision/preprocess.py` | ✅ Done |
 | Object detection (contour) | `src/vision/detection.py` | ✅ Done |
+| Detection tracker (debounce) | `src/vision/detection_tracker.py` | ✅ Done |
 | Main pipeline + live overlay | `src/vision/pipeline.py` | ✅ Done |
 | Configuration system | `config/vision_config.yaml` | ✅ Done |
 | Entry point script | `run_vision.py` | ✅ Done |
@@ -354,15 +408,26 @@ display:
 | Homography calibration script | `run_homography_calibration.py` | ✅ Done |
 | Pipeline integration (undistort + homography + belt) | `src/vision/pipeline.py` | ✅ Done |
 
+### ✅ Robot Communication (RTDE)
+
+| Component | File | Status |
+|-----------|------|--------|
+| RTDE sender (UR robot) | `src/vision/RTDEsender.py` | ✅ Done |
+| RTDE config (registers) | `rtde_config.xml` | ✅ Done |
+| Single-send detection tracker | `src/vision/detection_tracker.py` | ✅ Done |
+| Auto-reconnect on disconnect | `src/vision/pipeline.py` | ✅ Done |
+
 ### Current capabilities
 
 - Reads video at native FPS (~30 fps)
 - Detects a single light rectangular object on a dark background
 - Extracts centroid (x, y) and rotation angle (θ) per frame
+- **Single-send per part** — each part triggers exactly one coordinate send (debounced)
+- **Sends coordinates to UR robot via RTDE** with auto-reconnect
 - Draws live overlay (bounding box + centroid + angle label)
 - Loops video for continuous testing
 - All parameters configurable via YAML (no code changes needed)
-- ~1 ms processing time per frame
+- ~5 ms processing time per frame
 - **Auto-loads calibration files** if they exist (graceful degradation)
 - **Pixel → mm output** when homography is calibrated
 - **Belt compensation** predicts pick position when belt config is enabled
@@ -502,7 +567,10 @@ compensate_belt_motion()     ← Belt speed + delay (Step 3)
 (X_pick, Y_pick, angle)     ← Final output to robot
     │
     ▼
-Send over serial to robot controller
+DetectionTracker             ← Debounce + single-send (Step 4)
+    │ (sends once per part)
+    ▼
+RTDEsender.send_pose()       ← RTDE to UR robot (Step 5)
 ```
 
 ---
@@ -529,13 +597,14 @@ Send over serial to robot controller
 | **Run homography calibration** | Place reference markers on belt, run calibration script with camera. | 🔲 Needs hardware |
 | **Conveyor speed input** | Either read from an encoder (via serial/GPIO) or set as a constant in config. | 🔲 Needs hardware |
 
-### 🔲 Phase 3 — Robot Communication
+### ✅ Phase 3 — Robot Communication
 
-| Task | Details |
-|------|---------|
-| **Serial protocol** | Define the message format for sending `(X_mm, Y_mm, θ)` to the robot controller over `pyserial`. |
-| **`src/robot/` module** | Implement serial connection, message packaging, and send/receive logic. |
-| **Timing / sync** | Measure the actual detection-to-pick delay and tune the belt compensation. |
+| Task | Details | Status |
+|------|---------|--------|
+| **RTDE protocol** | Sends `(X_m, Y_m, θ_rad, valid)` to UR robot via RTDE input registers. | ✅ Done |
+| **`RTDEsender.py`** | Connection, send, and cleanup. Auto-reconnects on disconnect. | ✅ Done |
+| **Detection tracker** | State machine debounce — sends coordinates exactly once per physical part. | ✅ Done |
+| **Timing / sync** | Measure the actual detection-to-pick delay and tune the belt compensation. | 🔲 Needs tuning |
 
 ### 🔲 Phase 4 — Robustness & Testing
 

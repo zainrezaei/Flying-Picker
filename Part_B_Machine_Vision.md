@@ -33,7 +33,40 @@ Second, a **homography transformation** is employed to map the undistorted 2D pi
 ### 5) Confidence-based detection filtering
 The minimum area threshold alone cannot prevent false positives on an empty belt — reflections, lighting gradients, and belt texture can produce contours large enough to pass. To solve this, each candidate contour is subjected to additional geometric gates: a **solidity** check (contour area ÷ convex hull area ≥ 0.80), an **aspect ratio** range (0.3–3.0), and a **maximum area** cap (200,000 px²). Contours that pass all gates receive a **confidence score** (0–1), computed as the average of solidity and rectangularity (contour area ÷ bounding box area). Only detections above a configurable confidence threshold (default 0.50) are accepted; everything below is discarded, preventing the system from sending spurious coordinates to the robot. All thresholds are tuneable in `config/vision_config.yaml`.
 
-### 6) Libraries and dependencies
+### 6) Detection tracking and single-send logic
+When a workpiece passes under the camera, the per-frame detection is inherently jittery — the object may be detected, lost for one or two frames due to lighting fluctuations, and then detected again. Without mitigation, this sends **duplicate coordinates** to the robot's queue, causing it to attempt multiple picks at the same location.
+
+To address this, a **frame-based state machine** (`src/vision/detection_tracker.py`) is placed between the detection stage and the robot communication stage. It operates in three states:
+
+| State | Transition | Behaviour |
+|-------|-----------|-----------|
+| **IDLE** | Detection appears | Begin counting consecutive detection frames |
+| **CONFIRMING** | N consecutive detections reached (default N=3) | Compute **averaged coordinates** across the N frames and emit a single send signal |
+| **SENT** | M consecutive no-detections reached (default M=5) | Reset to IDLE, ready for the next part |
+
+This logic is **frame-based rather than time-based**, making it deterministic and independent of CPU load or frame-rate fluctuations. At 30 fps, the defaults translate to approximately 100 ms confirmation delay and 167 ms exit delay — fast enough to not miss parts on a typical conveyor.
+
+Additionally, a **distance threshold** (default 20 mm) handles the case where a new part enters the field of view before the previous one has fully exited. If the detected position jumps by more than the threshold from the locked position, the tracker immediately begins a new confirmation cycle for the new part without waiting for the full exit delay.
+
+All parameters (`confirm_frames`, `exit_frames`, `distance_threshold_mm`) are configurable in `config/vision_config.yaml` under the `tracking:` section, allowing on-site tuning without code changes.
+
+### 7) Robot communication via RTDE
+The final stage of the pipeline transmits the validated coordinates to the Universal Robots (UR) collaborative robot using the **Real-Time Data Exchange (RTDE)** protocol (`src/vision/RTDEsender.py`). RTDE provides a deterministic, low-latency interface that writes directly to the robot controller's input registers at 125 Hz.
+
+The `Sender` class encapsulates connection management and data formatting. When the tracker emits a confirmed detection, `send_pose()` writes four values to the robot's input registers:
+
+| Register | Content | Unit |
+|----------|---------|------|
+| `input_double_register_0` | X position | metres |
+| `input_double_register_1` | Y position | metres |
+| `input_double_register_2` | Orientation angle | radians |
+| `input_double_register_3` | Valid flag (1.0 = object present, 0.0 = no object) | — |
+
+Unit conversion (mm → m, degrees → radians) is performed inside `send_pose()`, so the rest of the pipeline operates in millimetres and degrees throughout. When the tracker detects that the part has exited the camera's field of view (returns to IDLE), a no-object signal (`valid = 0`) is sent to inform the robot that the last coordinate is no longer valid.
+
+The pipeline includes an automatic reconnection mechanism: if the RTDE connection is lost during operation (e.g., due to a network glitch or robot emergency stop), the system attempts to re-establish the connection every 10 frames without halting the vision processing.
+
+### 8) Libraries and dependencies
 
 | Library | Purpose |
 |---------|---------|
@@ -41,7 +74,7 @@ The minimum area threshold alone cannot prevent false positives on an empty belt
 | **NumPy** (`numpy`) | Array operations for frames and coordinate transforms; required by OpenCV internally |
 | **PyYAML** (`pyyaml`) | Parses the YAML configuration file so all parameters are editable without code changes |
 | **Picamera2** (`picamera2`) | Captures frames from the Raspberry Pi Global Shutter Camera (Sony IMX296) via `libcamera` |
-| **PySerial** (`pyserial`) | Sends final $(X, Y, \theta)$ coordinates to the robot controller over serial |
+| **RTDE** (`ur_rtde` / `rtde`) | Real-Time Data Exchange protocol for communicating with Universal Robots controllers |
 
 ### Vision Pipeline Flow
 
@@ -93,6 +126,20 @@ To visually summarize the execution flow described above, Figure X illustrates t
 │                     └──────┬───────┘                            │
 │                            │                                    │
 │                            ▼                                    │
+│              ┌───────────────────────────┐                      │
+│              │ DetectionTracker          │                      │
+│              │ • Debounce (3 frames)     │                      │
+│              │ • Send once per part      │                      │
+│              │ • Distance-based new part │                      │
+│              └────────────┬──────────────┘                      │
+│                           │ should_send=True (once)             │
+│                           ▼                                     │
+│              ┌───────────────────────────┐                      │
+│              │ RTDEsender                │                      │
+│              │ → Send (X, Y, θ) to robot │                      │
+│              └───────────────────────────┘                      │
+│                            │                                    │
+│                            ▼                                    │
 │                   ┌────────────────┐                            │
 │                   │ Draw overlay   │                            │
 │                   │ • Green box    │                            │
@@ -113,6 +160,7 @@ To visually summarize the execution flow described above, Figure X illustrates t
 │ ROl, belt    │   │ distortion coeffs     │   │                    │
 │ display opts │   │ (from checkerboard)   │   │ (from ref points)  │
 └──────────────┘   └───────────────────────┘   └────────────────────┘
+```
 
 ### Vision Pipeline Output Visualization
 
