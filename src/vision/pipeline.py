@@ -172,6 +172,7 @@ def run_pipeline(config_path: str | None = None):
     min_aspect      = det_cfg.get("min_aspect_ratio", 0.0)
     max_aspect      = det_cfg.get("max_aspect_ratio", 0.0)
     min_confidence  = det_cfg.get("min_confidence", 0.0)
+    edge_margin     = det_cfg.get("edge_margin", 0)
 
     show_mask   = cfg["display"].get("show_mask", True)
     cfg_display = cfg["display"]
@@ -280,6 +281,7 @@ def run_pipeline(config_path: str | None = None):
             min_solidity=min_solidity,
             min_aspect_ratio=min_aspect,
             max_aspect_ratio=max_aspect,
+            edge_margin=edge_margin,
         )
 
         # Gate on confidence

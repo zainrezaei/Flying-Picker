@@ -20,6 +20,7 @@ detection:
   min_aspect_ratio: 0.3      # Min width/height of rotated bbox; 0 = disabled
   max_aspect_ratio: 3.0      # Max width/height of rotated bbox; 0 = disabled
   min_confidence: 0.50       # Reject detections below this confidence (0–1)
+  edge_margin: 10            # Reject objects within this many px of frame edge (partial entry)
 
 # --- Region of Interest (crop frame edges to remove noise) ---
 roi:

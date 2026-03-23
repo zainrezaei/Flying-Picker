@@ -56,6 +56,7 @@ def detect_object(
     min_solidity: float = 0.0,
     min_aspect_ratio: float = 0.0,
     max_aspect_ratio: float = 0.0,
+    edge_margin: int = 0,
 ) -> Optional[DetectionResult]:
     """Detect the single largest object in a binary mask.
 
@@ -78,6 +79,10 @@ def detect_object(
         Maximum width/height ratio of the rotated bounding box.
         0 = disabled.
 
+    edge_margin : int
+        Reject contours whose bounding box is within this many pixels
+        of the frame edge (catches partially-visible parts). 0 = disabled.
+
     Returns
     -------
     DetectionResult or None
@@ -97,6 +102,16 @@ def detect_object(
         return None
     if max_area > 0 and area > max_area:
         return None
+
+    # --- Gate 1b: edge proximity (reject partially visible objects) ---
+    if edge_margin > 0:
+        frame_h, frame_w = mask.shape[:2]
+        bx, by, bw, bh = cv.boundingRect(largest)
+        if (bx <= edge_margin or
+            by <= edge_margin or
+            bx + bw >= frame_w - edge_margin or
+            by + bh >= frame_h - edge_margin):
+            return None
 
     # --- Gate 2: solidity ---
     if min_solidity > 0:
